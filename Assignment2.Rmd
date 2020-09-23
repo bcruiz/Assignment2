@@ -1,0 +1,182 @@
+---
+title: "Assignment 2"
+author: "Brandyn Ruiz"
+date: "9/22/2020"
+output: html_document
+---
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+library(dplyr)
+library(readr)
+library(data.table)
+library(ggplot2)
+library(RColorBrewer)
+library(leaflet)
+```
+
+# Data Wrangling
+```{r, echo=TRUE, message=FALSE}
+urlfile = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/01_chs/chs_individual.csv"
+
+chs_individual <- read_csv(url(urlfile))
+chs_individual <- na.omit(chs_individual)
+
+head(chs_individual)
+```
+
+```{r, echo=TRUE, message=FALSE}
+urlfile = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/01_chs/chs_regional.csv"
+
+chs_regional <- read_csv(url(urlfile))
+chs_regional <- na.omit(chs_regional)
+
+head(chs_regional)
+```
+
+```{r}
+chs_merge <- merge(chs_individual, chs_regional)
+
+head(chs_merge)
+
+#1) Double checking for duplicates
+dim(chs_individual)
+dim(chs_regional)
+dim(chs_merge)
+```
+
+```{r, message=FALSE}
+#2)
+chs_merge <- chs_merge%>%
+  mutate(obesity_level = case_when(bmi < 14 ~ 'Underweight',
+                                   bmi < 23 ~ 'Normal',
+                                   bmi < 25 ~ 'Overweight',
+                                   bmi > 24 ~ 'Obese'))
+
+chs_merge %>%
+  group_by(obesity_level)%>%
+  summarise(minBMI = min(bmi), maxBMI = max(bmi), n = n())
+```
+
+```{r}
+#3)
+chs_merge <- chs_merge%>%
+  mutate(smoke_gas_exposure = ifelse(smoke == 1 & gasstove == 0, 'YesSmokeNoStove',
+                              ifelse(smoke == 0 & gasstove == 1, 'NoSmokeYesStove',
+                              ifelse(smoke == 1 & gasstove == 1, 'YesSmokeYesStove',
+                                     'NoSmokeNoStove'))))
+```
+
+```{r, message=FALSE}
+#4)
+chs_merge %>%
+  group_by(townname)%>%
+  summarise(AverageFEV = mean(fev), St.devFEV = sd(fev), ProportionAsthma = sum(asthma)/nrow(chs_merge),
+            St.devAsthma = sd(asthma))
+
+chs_merge%>%
+  group_by(male)%>%
+  summarise(AverageFEV = mean(fev), St.devFEV = sd(fev), ProportionAsthma = sum(asthma)/nrow(chs_merge),
+            St.devAsthma = sd(asthma))
+  
+chs_merge%>%
+  group_by(obesity_level)%>%
+  summarise(AverageFEV = mean(fev), St.devFEV = sd(fev), ProportionAsthma = sum(asthma)/nrow(chs_merge),
+            St.devAsthma = sd(asthma))
+
+chs_merge%>%
+  group_by(smoke_gas_exposure)%>%
+  summarise(AverageFEV = mean(fev), St.devFEV = sd(fev), ProportionAsthma = sum(asthma)/nrow(chs_merge),
+            St.devAsthma = sd(asthma))
+```
+
+# Looking at the Data (EDA)
+```{r}
+#BMI, smoke and gas exposure, and PM2.5 on FEV
+chs_merge%>%
+  select(bmi, smoke_gas_exposure, pm25_mass)%>%
+  str()
+
+chs_merge%>%
+  select(bmi, smoke_gas_exposure, pm25_mass)%>%
+  head()
+
+chs_merge%>%
+  select(bmi, smoke_gas_exposure, pm25_mass)%>%
+  tail()
+
+chs_merge%>%
+  select(bmi, smoke_gas_exposure, pm25_mass)%>%
+  summary()
+```
+
+```{r, message=FALSE}
+#1)
+ggplot(chs_merge, aes(bmi, fev))+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  facet_wrap(~townname, ncol = 2)+
+  labs(title = 'Scatterplot of BMI and FEV by Town name', x = 'BMI', y = 'FEV')
+```
+
+```{r}
+#2)
+ggplot(chs_merge, aes(x = fev, fill = obesity_level))+
+  geom_histogram()+
+  scale_fill_brewer(palette = 'Paired', direction = -1)+
+  # theme_dark()+
+  labs(title = 'Staked Histogram of FEV counts by BMI category', x = 'FEV', fill = 'BMI Category')
+
+ggplot(chs_merge, aes(x = fev, fill = smoke_gas_exposure))+
+  geom_histogram()+
+  scale_fill_brewer(palette = 'Purples', direction = -1)+
+  # theme_dark()+
+  labs(title = 'Staked Histogram of FEV counts by Smoke and Gas Exposure', x = 'FEV', fill = 'Smoke/Gas Exposure')
+```
+
+```{r, message=FALSE}
+#3)
+ggplot(chs_merge, aes(bmi))+
+  geom_histogram()+
+  facet_wrap(~smoke_gas_exposure)+
+  labs(title = 'Histogram of BMI by Smoke and Gas Exposure', x = 'BMI')
+```
+
+```{r, message=FALSE}
+#4)
+
+#FEV by BMI
+model <- lm(fev ~ bmi, data = chs_merge)
+temp_var <- predict(model, interval = 'prediction')
+test_df <- cbind(chs_merge, temp_var)
+
+ggplot(test_df, aes(bmi, fev))+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  geom_line(aes(y = lwr), color = 'red', linetype = 'dashed')+
+  geom_line(aes(y = upr), color = 'red', linetype = 'dashed')+
+  labs(title = 'Scatterplot of FEV by BMI with Confidence and Prediction intervals', x = 'BMI', y = 'FEV')
+
+#FEV by smoke and gas exposure
+ggplot(chs_merge, aes(smoke_gas_exposure, fev))+
+  geom_boxplot()+
+  labs(title = 'Boxplot of FEV by Smoke and Gas Exposure', x = 'Smoke and Gase Exposure',y = 'FEV')
+```
+
+```{r}
+#5)
+leaflet(chs_merge)%>%
+  addProviderTiles('OpenStreetMap')%>%
+  addCircles(lat=~lat, lng=~lon, opacity = 0.2, radius = ~(pm25_mass)^2 * 20, popup = ~townname)
+#tried different code for opacity but leaflet will not take
+```
+
+```{r}
+#6)
+#PM 2.5 mass, FEV
+chs_merge$pm25_mass <- as.factor(chs_merge$pm25_mass)
+
+ggplot(chs_merge, aes(pm25_mass, fev, color = pm25_mass))+
+  geom_boxplot()+
+  labs(title = 'Boxplot of PM 2.5 mass and FEV', x = 'PM 2.5 Mass', y = 'FEV')
+
+```
